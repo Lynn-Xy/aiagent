@@ -1,4 +1,4 @@
-import os, argparse
+import os, argparse, sys
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -20,32 +20,47 @@ def main():
 
     messages = [types.Content(role="user", parts=[types.Part(text=args.user_prompt)])]
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=messages,
-        config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt, temperature=0)
-    )
-    function_call_results_list = []
-    if args.verbose:
-        print(f"User prompt: {args.user_prompt}")
-        if response.usage_metadata is None:
-            raise RuntimeError("Response usage metadata is None. API call failed.")
-        else:
-            print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-            print(f"Response tokens: {response.usage_metadata.thoughts_token_count}")
-    if response.function_calls:
-        for function_call in response.function_calls:
-            function_call_result = call_function(function_call, verbose=args.verbose)
-            if not function_call_result.parts:
-                print("No response parts from function call.")
+    for _ in range(12):
+    
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=messages,
+            config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt, temperature=0)
+        )
+
+        if response.candidates: 
+            for candidate in response.candidates:
+                messages.append(candidate.content)
+
+        function_call_results_list = []
+        if args.verbose:
+            print(f"User prompt: {args.user_prompt}")
+            if response.usage_metadata is None:
+                raise RuntimeError("Response usage metadata is None. API call failed.")
             else:
-                if not function_call_result.parts[0]:
-                    print(f"Error calling function {function_call.name}: {function_call_result.parts[0].response['error']}")
-                if not function_call_result.parts[0].function_response:
-                    raise Exception(f"No response from function {function_call.name}.")
-                function_call_results_list.append(function_call_result.parts[0])
-                if args.verbose:
-                    print(f"-> {function_call_result.parts[0].function_response.response}")
+                print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+                print(f"Response tokens: {response.usage_metadata.thoughts_token_count}")
+        if response.function_calls:
+            for function_call in response.function_calls:
+                function_call_result = call_function(function_call, verbose=args.verbose)
+                if not function_call_result.parts:
+                    print("No response parts from function call.")
+                else:
+                    if not function_call_result.parts[0]:
+                        print(f"Error calling function {function_call.name}: {function_call_result.parts[0].response['error']}")
+                    if not function_call_result.parts[0].function_response:
+                        raise Exception(f"No response from function {function_call.name}.")
+                    function_call_results_list.append(function_call_result.parts[0])
+                    if args.verbose:
+                        print(f"-> {function_call_result.parts[0].function_response.response}")
+        else:
+            print(response.text)
+            return
+        messages.append(types.Content(role="user", parts=function_call_results_list))
+
+    if not response.text:
+        print("No final response from model after 12 cycles.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
